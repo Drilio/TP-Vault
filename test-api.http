@@ -1,0 +1,21 @@
+### Obtenir tous les livres (et créer la table + données si besoin)
+GET http://localhost:3000/
+Accept: application/json
+
+###
+
+### Obtenir l’URL TOTP pour configurer Google Authenticator
+GET http://localhost:3000/totp-url
+Accept: application/json
+
+###
+
+### Tester le login avec OTP (remplace le champ `otp` par un code valide depuis ton appli TOTP)
+POST http://localhost:3000/login
+Content-Type: application/json
+
+{
+  "username": "admin",
+  "password": "monmdp",
+  "otp": "123456"
+}

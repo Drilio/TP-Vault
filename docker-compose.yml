@@ -4,35 +4,26 @@ services:
   mariadb:
     image: mariadb:11
     environment:
-      MYSQL_ROOT_PASSWORD: rootpass
-      MYSQL_DATABASE: testvault
-      MYSQL_USER: testvault
-      MYSQL_PASSWORD: vaultpass
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
     ports:
       - "3306:3306"
     volumes:
       - mariadb_data:/var/lib/mysql
-
-  openbao:
-    image: openbao/openbao:latest
-    command: server -config=/vault/config/config.hcl
-    ports:
-      - "8200:8200"
-    volumes:
-      - ./openbao_data:/vault/file
-      - ./openbao/config.hcl:/vault/config/config.hcl:ro
-    cap_add:
-      - IPC_LOCK
-
   app:
     build:
       context: ./app
     environment:
-        VAULT_ADDR: http://openbao:8200
-        VAULT_TOKEN: s.IHYHzZZd0NsoVxvTsJqm4Tmj
+      OPENBAO_URL: ${OPENBAO_URL}
+      DB_USER: ${MYSQL_USER}
+      DB_PASSWORD: ${MYSQL_PASSWORD}
+      DB_NAME: ${MYSQL_DATABASE}
+      OPENBAO_KEY: ${OPENBAO_KEY}
+      OPENBAO_TOKEN: ${OPENBAO_TOKEN}
     depends_on:
       - mariadb
-      - openbao
     ports:
       - "3000:3000"
 

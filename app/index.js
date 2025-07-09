@@ -1,44 +1,138 @@
 import express from 'express'
 import axios from 'axios'
 import mysql from 'mysql2/promise'
+import bcrypt from 'bcrypt'
+import cors from 'cors'
+import speakeasy from 'speakeasy'
 
-const VAULT_ADDR = process.env.VAULT_ADDR
-const VAULT_TOKEN = process.env.VAULT_TOKEN
 
+const VAULT_ADDR = process.env.OPENBAO_URL
+
+const token = process.env.OPENBAO_TOKEN
 const app = express()
 const port = 3000
 
-async function getDbConnection() {
-    const res = await axios.get(`${VAULT_ADDR}/v1/secret/data/mariadb`, {
-        headers: { 'X-Vault-Token': VAULT_TOKEN }
-    })
-    const config = res.data.data.data
-        console.log("config",config)
-    return await mysql.createConnection({
-        host: config.db_host,
-        port: parseInt(config.db_port),
-        user: config.db_user,
-        password: config.db_password,
-        database: config.db_name
-    })
+app.use(cors({
+    origin: '*', // autorise toutes les origines — pour dev uniquement
+}))
+app.use(express.json())
+async function waitForMariaDB(config, retries = 10, delayMs = 2000) {
+    for (let i = 0; i < retries; i++) {
+        try {
+            const conn = await mysql.createConnection(config)
+            await conn.ping()
+            console.log("✅ Connexion à MariaDB réussie.")
+            return conn
+        } catch (err) {
+            console.warn(`⏳ MariaDB non dispo, tentative ${i + 1}/${retries}...`)
+            await new Promise((res) => setTimeout(res, delayMs))
+        }
+    }
+    throw new Error("❌ Impossible de se connecter à MariaDB après plusieurs tentatives.")
 }
 
+async function getDbConnection() {
+    try {
+        const res = await axios.get(`${VAULT_ADDR}/v1/secret/data/mariadb`, {
+            headers: { 'X-Vault-Token': token }
+        })
+
+        const config = res.data.data.data
+
+        // ✅ Utilisation de waitForMariaDB ici
+        return await waitForMariaDB({
+            host: config.db_host,
+            port: parseInt(config.db_port),
+            user: config.db_user,
+            password: config.db_password,
+            database: config.db_name
+        })
+    } catch (err) {
+        if (err.response) {
+            console.error('💥 Vault error response:', err.response.data)
+        } else if (err.request) {
+            console.error('📡 Vault no response (network error):', err.message)
+        } else {
+            console.error('❗ Error setting up request:', err.message)
+        }
+        throw err
+    }
+}
+async function setupDb() {
+    const db = await getDbConnection()
+
+    await db.execute(`
+        CREATE TABLE IF NOT EXISTS livre (
+                                             id INT AUTO_INCREMENT PRIMARY KEY,
+                                             titre VARCHAR(255) NOT NULL
+            )
+    `)
+    await db.execute(`INSERT IGNORE INTO livre (id, titre) VALUES (1, '1984')`)
+
+    await db.execute(`
+        CREATE TABLE IF NOT EXISTS user (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            password VARCHAR(255) NOT NULL
+        )
+    `)
+
+    const users = [
+        ['alice', 'alicepass'],
+        ['bob', 'bobpass'],
+        ['carol', 'carolpass'],
+        ['dave', 'davepass'],
+    ]
+
+    for (const [name, plainPassword] of users) {
+        const hashedPassword = await bcrypt.hash(plainPassword, 10)
+        await db.execute(`
+            INSERT INTO user (name, password) VALUES (?, ?)
+        `, [name, hashedPassword])
+    }
+
+    await db.end()
+}
+
+await setupDb()
 app.get('/', async (req, res) => {
     try {
         const db = await getDbConnection()
-        await db.execute(`
-            CREATE TABLE IF NOT EXISTS livre (
-                                                 id INT AUTO_INCREMENT PRIMARY KEY,
-                                                 titre VARCHAR(255) NOT NULL
-                )
-        `)
-        await db.execute(`INSERT IGNORE INTO livre (id, titre) VALUES (1, '1984')`)
-        const [rows] = await db.execute('SELECT * FROM livre')
-        res.json(rows)
         await db.end()
+        res.status(200)
     } catch (err) {
         console.error(err)
         res.status(500).json({ error: 'DB or secret error', details: err.message })
+    }
+})
+
+app.post('/login', async (req, res) => {
+    console.log(res.body)
+    const { name, password } = req.body
+    if (!name || !password) {
+        return res.status(400).json({ error: 'Nom et mot de passe requis.' })
+    }
+
+    try {
+        const db = await getDbConnection()
+        const [rows] = await db.execute('SELECT * FROM user WHERE name = ?', [name])
+        await db.end()
+
+        if (rows.length === 0) {
+            return res.status(401).json({ error: 'Utilisateur non trouvé.' })
+        }
+
+        const user = rows[0]
+        const passwordMatch = await bcrypt.compare(password, user.password)
+
+        if (!passwordMatch) {
+            return res.status(401).json({ error: 'Mot de passe incorrect.' })
+        }
+
+        res.json({ message: 'Connexion réussie ✅', user: { id: user.id, name: user.name } })
+    } catch (err) {
+        console.error('❌ Erreur lors de la connexion:', err.message)
+        res.status(500).json({ error: 'Erreur serveur' })
     }
 })
 

@@ -1,0 +1,91 @@
+### Initialize Vault
+PUT http://localhost:8200/v1/sys/init
+Content-Type: application/json
+
+{
+  "secret_shares": 1,
+  "secret_threshold": 1
+}
+
+### Unseal Vault
+PUT http://localhost:8200/v1/sys/unseal
+Content-Type: application/json
+
+{
+  "key": "db1bf7e8127730de022a34e1799d2bb7def2d98db749ec2623ea1c834e4f03c8"
+}
+
+### Enable KV secrets engine at path "secret/"
+POST http://localhost:8200/v1/sys/mounts/secret
+X-Vault-Token: s.LHwmYThgadSvPjfjBgwwDs8U
+Content-Type: application/json
+
+{
+  "type": "kv",
+  "options": {
+    "version": "2"
+  }
+}
+
+### Write a secret
+POST http://localhost:8200/v1/secret/data/mariadb
+X-Vault-Token: s.LHwmYThgadSvPjfjBgwwDs8U
+Content-Type: application/json
+
+{
+  "data": {
+    "username": "testvault",
+    "password": "testvault"
+  }
+}
+
+### Read the secret
+GET http://localhost:8200/v1/secret/data/mariadb
+X-Vault-Token: s.LHwmYThgadSvPjfjBgwwDs8U
+
+### Activer auth userpass
+POST http://localhost:8200/v1/sys/auth/userpass
+X-Vault-Token: s.LHwmYThgadSvPjfjBgwwDs8U
+Content-Type: application/json
+
+{
+  "type": "userpass"
+}
+
+### Activer le moteur TOTP
+POST http://localhost:8200/v1/sys/mounts/totp
+X-Vault-Token: s.LHwmYThgadSvPjfjBgwwDs8U
+Content-Type: application/json
+
+{
+  "type": "totp"
+}
+
+### Créer un utilisateur
+POST http://localhost:8200/v1/auth/userpass/users/testvault
+X-Vault-Token: s.LHwmYThgadSvPjfjBgwwDs8U
+Content-Type: application/json
+
+{
+  "password": "vaultpass"
+}
+
+### Créer un TOTP pour testvault
+POST http://localhost:8200/v1/totp/keys/testvault
+X-Vault-Token: s.LHwmYThgadSvPjfjBgwwDs8U
+Content-Type: application/json
+
+{
+  "generate": true,
+  "issuer": "MyApp",
+  "account_name": "testvault@myapp.io"
+}
+
+### Vérification du code TOTP
+POST http://localhost:8200/v1/totp/code/testvault
+X-Vault-Token: s.LHwmYThgadSvPjfjBgwwDs8U
+Content-Type: application/json
+
+{
+  "code": "123456"
+}
