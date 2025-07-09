@@ -36,7 +36,7 @@ Pas de persistance
 ```bash
 docker exec -it openbao sh
 ```
-
+dans le docker d'openbao execute : 
 ```bash
 export VAULT_ADDR=http://127.0.0.1:8200
 
@@ -46,6 +46,7 @@ vault operator init -key-shares=1 -key-threshold=1
   OPENBAO_KEY=
   OPENBAO_TOKEN=
 
+toujours dans le docker d'openbao  : 
 ```bash
 vault operator unseal <Unseal_Key>
 vault login <Root_Token>
@@ -53,6 +54,7 @@ vault login <Root_Token>
 
 # Etape 3: injecter un secret 
 
+toujours dans le docker openbao : 
 ```bash
 vault secrets enable -path=secret kv-v2
 
@@ -66,17 +68,18 @@ vault kv put secret/mariadb \
 
 # Etape 4 : lance la stack
 
+dans un autre terminal :  
 
 ```bash
 docker compose up --build
 ```
 
-connecte openbao au reseau docker :
+connecte openbao au reseau docker en executant cette comande dans un autre terminal:
 
 ```bash
 docker network connect tp-vault_default openbao
 ```
-Si un erreur apparait
+Si une erreur apparait (elle devrait apparaitre dans les logs de ton docker compose)
 ```bash 
 docker compose down
 docker compose up
