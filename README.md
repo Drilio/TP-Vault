@@ -120,9 +120,11 @@ Mot de passe: alicepass
 # Stratégie pour empêcher le rejeu des requêtes : 
 regarde ./app/antiReplay.js
 
-Je l'utilise que sur Login dans index.js ligne 125
+Je l'utilise que sur Login dans index.js ligne 144
 
+# Stratégie pour delete les vieux compte : 
 
+de la ligne 65 a 84 dans index.js
 ### TO STORE
 Unseal Key 1:
 

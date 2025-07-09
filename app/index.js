@@ -8,10 +8,10 @@ import { authenticator } from 'otplib'
 import qrcodeLib from 'qrcode'
 import crypto from 'crypto'
 import {antiReplayMiddleware} from "./antiReplay.js";
+import cron from 'node-cron'
 
 
 const VAULT_ADDR = process.env.OPENBAO_URL
-
 const token = process.env.OPENBAO_TOKEN
 const app = express()
 const port = 3000
@@ -20,6 +20,7 @@ app.use(cors({
     origin: '*', // autorise toutes les origines — pour dev uniquement
 }))
 app.use(express.json())
+
 async function waitForMariaDB(config, retries = 10, delayMs = 2000) {
     for (let i = 0; i < retries; i++) {
         try {
@@ -43,7 +44,6 @@ async function getDbConnection() {
 
         const config = res.data.data.data
 
-        // ✅ Utilisation de waitForMariaDB ici
         return await waitForMariaDB({
             host: config.db_host,
             port: parseInt(config.db_port),
@@ -62,29 +62,47 @@ async function getDbConnection() {
         throw err
     }
 }
+
+async function deleteObsoleteUsers(thresholdDays = 90) {
+    const db = await getDbConnection()
+    const [result] = await db.execute(
+        `DELETE FROM user WHERE last_login_at IS NULL OR last_login_at < (NOW() - INTERVAL ? DAY)`,
+        [thresholdDays]
+    )
+    console.log(`🧹 Utilisateurs supprimés : ${result.affectedRows}`)
+    await db.end()
+}
+
+cron.schedule('0 0 1 */1 *', async () => {
+    console.log('🧹 Tâche CRON : suppression des comptes obsolètes démarrée.')
+    try {
+        await deleteObsoleteUsers()
+        console.log('✅ Tâche CRON terminée avec succès.')
+    } catch (err) {
+        console.error('❌ Erreur lors de la tâche CRON:', err.message)
+    }
+})
 async function setupDb() {
     const db = await getDbConnection()
 
-    // Création de la table `livre`
     await db.execute(`
         CREATE TABLE IF NOT EXISTS livre (
-                                             id INT AUTO_INCREMENT PRIMARY KEY,
-                                             titre VARCHAR(255) NOT NULL
-            )
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            titre VARCHAR(255) NOT NULL
+        )
     `)
     await db.execute(`INSERT IGNORE INTO livre (id, titre) VALUES (1, '1984')`)
 
-    // Création de la table `user` avec otp_secret
     await db.execute(`
         CREATE TABLE IF NOT EXISTS user (
-                                            id INT AUTO_INCREMENT PRIMARY KEY,
-                                            name VARCHAR(255) NOT NULL UNIQUE,
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(255) NOT NULL UNIQUE,
             password VARCHAR(255) NOT NULL,
-            otp_secret VARCHAR(255)
-            )
+            otp_secret VARCHAR(255),
+            last_login_at DATETIME DEFAULT NULL
+        )
     `)
 
-    // Utilisateurs à créer
     const users = [
         ['alice', 'alicepass'],
         ['bob', 'bobpass'],
@@ -94,18 +112,19 @@ async function setupDb() {
 
     for (const [name, plainPassword] of users) {
         const hashedPassword = await bcrypt.hash(plainPassword, 10)
-
         const otpSecret = speakeasy.generateSecret({ name: `VaultApp (${name})` })
-
-        await db.execute(`
-            INSERT IGNORE INTO user (name, password, otp_secret) VALUES (?, ?, ?)
-        `, [name, hashedPassword, otpSecret.base32])
+        await db.execute(
+            `INSERT IGNORE INTO user (name, password, otp_secret) VALUES (?, ?, ?)`,
+            [name, hashedPassword, otpSecret.base32]
+        )
     }
 
     await db.end()
 }
 
 await setupDb()
+await deleteObsoleteUsers()
+
 app.get('/', async (req, res) => {
     try {
         const db = await getDbConnection()
@@ -151,6 +170,7 @@ app.post('/login', antiReplayMiddleware, express.json(), async (req, res) => {
             otp_secret = authenticator.generateSecret()
             await db.execute('UPDATE user SET otp_secret = ? WHERE id = ?', [otp_secret, user.id])
         }
+        await db.execute('UPDATE user SET last_login_at = NOW() WHERE id = ?', [user.id])
 
         await db.end()
 
@@ -170,7 +190,6 @@ app.post('/login', antiReplayMiddleware, express.json(), async (req, res) => {
         res.status(500).json({ error: 'Erreur serveur' })
     }
 })
-
 
 app.post('/verify-otp', express.json(), async (req, res) => {
     const { name, token: otp } = req.body
@@ -216,6 +235,7 @@ app.post('/verify-otp', express.json(), async (req, res) => {
         res.status(500).json({ error: 'Erreur serveur.' })
     }
 })
+
 app.listen(port, () => {
     console.log(`App listening on port ${port}`)
 })
