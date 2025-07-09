@@ -2,6 +2,14 @@
 ```bash
 cp .env.sample .env
 ```
+
+```bash
+cd app/
+npm install
+cd ..
+```
+ensuite : 
+
 ```bash
 sudo chown -R 100:100 ./openbao
 ```
@@ -70,7 +78,8 @@ docker network connect tp-vault_default openbao
 ```
 Si un erreur apparait
 ```bash 
-docker compose restart
+docker compose down
+docker compose up
 ```
 
 ensuite tu peux aller sur : http://localhost:3000/ 

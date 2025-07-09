@@ -4,6 +4,8 @@ import mysql from 'mysql2/promise'
 import bcrypt from 'bcrypt'
 import cors from 'cors'
 import speakeasy from 'speakeasy'
+import { authenticator } from 'otplib'
+import qrcodeLib from 'qrcode'
 
 
 const VAULT_ADDR = process.env.OPENBAO_URL
@@ -61,6 +63,7 @@ async function getDbConnection() {
 async function setupDb() {
     const db = await getDbConnection()
 
+    // Création de la table `livre`
     await db.execute(`
         CREATE TABLE IF NOT EXISTS livre (
                                              id INT AUTO_INCREMENT PRIMARY KEY,
@@ -69,14 +72,17 @@ async function setupDb() {
     `)
     await db.execute(`INSERT IGNORE INTO livre (id, titre) VALUES (1, '1984')`)
 
+    // Création de la table `user` avec otp_secret
     await db.execute(`
         CREATE TABLE IF NOT EXISTS user (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            name VARCHAR(255) NOT NULL,
-            password VARCHAR(255) NOT NULL
-        )
+                                            id INT AUTO_INCREMENT PRIMARY KEY,
+                                            name VARCHAR(255) NOT NULL UNIQUE,
+            password VARCHAR(255) NOT NULL,
+            otp_secret VARCHAR(255)
+            )
     `)
 
+    // Utilisateurs à créer
     const users = [
         ['alice', 'alicepass'],
         ['bob', 'bobpass'],
@@ -86,9 +92,12 @@ async function setupDb() {
 
     for (const [name, plainPassword] of users) {
         const hashedPassword = await bcrypt.hash(plainPassword, 10)
+
+        const otpSecret = speakeasy.generateSecret({ name: `VaultApp (${name})` })
+
         await db.execute(`
-            INSERT INTO user (name, password) VALUES (?, ?)
-        `, [name, hashedPassword])
+            INSERT IGNORE INTO user (name, password, otp_secret) VALUES (?, ?, ?)
+        `, [name, hashedPassword, otpSecret.base32])
     }
 
     await db.end()
@@ -106,8 +115,7 @@ app.get('/', async (req, res) => {
     }
 })
 
-app.post('/login', async (req, res) => {
-    console.log(res.body)
+app.post('/login', express.json(), async (req, res) => {
     const { name, password } = req.body
     if (!name || !password) {
         return res.status(400).json({ error: 'Nom et mot de passe requis.' })
@@ -116,9 +124,9 @@ app.post('/login', async (req, res) => {
     try {
         const db = await getDbConnection()
         const [rows] = await db.execute('SELECT * FROM user WHERE name = ?', [name])
-        await db.end()
 
         if (rows.length === 0) {
+            await db.end()
             return res.status(401).json({ error: 'Utilisateur non trouvé.' })
         }
 
@@ -126,16 +134,81 @@ app.post('/login', async (req, res) => {
         const passwordMatch = await bcrypt.compare(password, user.password)
 
         if (!passwordMatch) {
+            await db.end()
             return res.status(401).json({ error: 'Mot de passe incorrect.' })
         }
 
-        res.json({ message: 'Connexion réussie ✅', user: { id: user.id, name: user.name } })
+        let otp_secret = user.otp_secret
+
+        if (!otp_secret) {
+            otp_secret = authenticator.generateSecret()
+            await db.execute('UPDATE user SET otp_secret = ? WHERE id = ?', [otp_secret, user.id])
+        }
+
+        await db.end()
+
+        const otpauth_url = authenticator.keyuri(user.name, 'VaultApp', otp_secret)
+        const qrcode = await qrcodeLib.toDataURL(otpauth_url)
+
+        res.json({
+            message: 'Connexion réussie ✅',
+            user: { id: user.id, name: user.name },
+            otp: {
+                otpauth_url,
+                qrcode
+            }
+        })
     } catch (err) {
-        console.error('❌ Erreur lors de la connexion:', err.message)
+        console.error('❌ Erreur login:', err.message)
         res.status(500).json({ error: 'Erreur serveur' })
     }
 })
 
+
+app.post('/verify-otp', express.json(), async (req, res) => {
+    const { name, token: otp } = req.body
+
+    if (!name || !otp) {
+        return res.status(400).json({ error: 'Nom et code OTP requis.' })
+    }
+
+    try {
+        const db = await getDbConnection()
+        const [rows] = await db.execute('SELECT * FROM user WHERE name = ?', [name])
+        await db.end()
+
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Utilisateur non trouvé.' })
+        }
+
+        const user = rows[0]
+
+        if (!user.otp_secret) {
+            return res.status(400).json({ error: 'OTP non configuré pour cet utilisateur.' })
+        }
+
+        authenticator.options = {
+            step: 30,
+            digits: 6,
+            algorithm: 'sha1'
+        }
+
+        console.log("otp")
+        console.log(otp)
+        console.log("user.otp_secret")
+        console.log(user.otp_secret)
+        const isValid = authenticator.check(otp, user.otp_secret)
+
+        if (!isValid) {
+            return res.status(401).json({ error: 'Code OTP invalide.' })
+        }
+
+        res.json({ message: '✅ OTP valide.' })
+    } catch (err) {
+        console.error('❌ Erreur OTP:', err.message)
+        res.status(500).json({ error: 'Erreur serveur.' })
+    }
+})
 app.listen(port, () => {
     console.log(`App listening on port ${port}`)
 })

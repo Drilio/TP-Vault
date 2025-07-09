@@ -18,7 +18,23 @@
 
 <pre id="response"></pre>
 
+<div id="otpSection" style="display: none;">
+    <h2>Double authentification</h2>
+    <img id="qrCodeImg" alt="QR Code OTP" />
+    <p><strong>OTP Auth URL :</strong> <span id="otpUrl"></span></p>
+
+    <form id="otpForm">
+        <label for="otpCode">Code OTP :</label>
+        <input type="text" id="otpCode" name="otpCode" required pattern="\d{6}" />
+        <button type="submit">Valider OTP</button>
+    </form>
+</div>
+<div id="otpSuccess" style="display: none; color: green;">
+    ✅ OTP valide. Vous êtes connecté !
+</div>
 <script>
+    let currentUserName = '';
+
     const login = async (name, password) => {
         try {
             const res = await fetch('http://localhost:3000/login', {
@@ -30,17 +46,68 @@
             const data = await res.json();
             console.log(data);
             document.getElementById('response').textContent = JSON.stringify(data, null, 2);
+
+            if (data.user) {
+                currentUserName = data.user.name;
+            }
+
+            if (data.otp) {
+                document.getElementById('otpSection').style.display = 'block';
+                document.getElementById('qrCodeImg').src = data.otp.qrcode;
+                document.getElementById('otpUrl').textContent = data.otp.otpauth_url;
+            } else {
+                document.getElementById('otpSection').style.display = 'none';
+            }
         } catch (error) {
             console.error('Erreur:', error);
             document.getElementById('response').textContent = 'Erreur lors de la connexion.';
+            document.getElementById('otpSection').style.display = 'none';
         }
     };
+
+    async function verifyOtp(name, token) {
+        try {
+            const res = await fetch('http://localhost:3000/verify-otp', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, token })
+            });
+
+            const data = await res.json();
+
+            if (res.ok) {
+                document.getElementById('otpSuccess').style.display = 'block'
+                document.getElementById('otpError').style.display = 'none'
+            } else {
+                document.getElementById('otpError').textContent = data.error || 'Erreur OTP.'
+                document.getElementById('otpError').style.display = 'block'
+                document.getElementById('otpSuccess').style.display = 'none'
+            }
+        } catch (err) {
+            document.getElementById('otpError').textContent = 'Erreur réseau.'
+            document.getElementById('otpError').style.display = 'block'
+            document.getElementById('otpSuccess').style.display = 'none'
+        }
+    }
+
+    document.getElementById('otpForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const name = document.getElementById('name').value;
+        const token = document.getElementById('otpToken').value;
+        verifyOtp(name, token);
+    });
 
     document.getElementById('loginForm').addEventListener('submit', (e) => {
         e.preventDefault();
         const name = document.getElementById('name').value;
         const password = document.getElementById('password').value;
         login(name, password);
+    });
+
+    document.getElementById('otpForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const otp = document.getElementById('otpCode').value;
+        verifyOtp(currentUserName, otp);
     });
 </script>
 </body>
