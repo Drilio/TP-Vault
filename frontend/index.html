@@ -28,18 +28,32 @@
         <input type="text" id="otpCode" name="otpCode" required pattern="\d{6}" />
         <button type="submit">Valider OTP</button>
     </form>
+    <div id="otpError" style="color: red; display: none;"></div>
 </div>
+
 <div id="otpSuccess" style="display: none; color: green;">
     ✅ OTP valide. Vous êtes connecté !
 </div>
+
 <script>
     let currentUserName = '';
 
+    async function getNonce() {
+        const res = await fetch('http://localhost:3000/nonce');
+        const data = await res.json();
+        return data.nonce;
+    }
+
     const login = async (name, password) => {
         try {
+            const nonce = await getNonce();
+
             const res = await fetch('http://localhost:3000/login', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Nonce': nonce
+                },
                 body: JSON.stringify({ name, password })
             });
 
@@ -76,26 +90,19 @@
             const data = await res.json();
 
             if (res.ok) {
-                document.getElementById('otpSuccess').style.display = 'block'
-                document.getElementById('otpError').style.display = 'none'
+                document.getElementById('otpSuccess').style.display = 'block';
+                document.getElementById('otpError').style.display = 'none';
             } else {
-                document.getElementById('otpError').textContent = data.error || 'Erreur OTP.'
-                document.getElementById('otpError').style.display = 'block'
-                document.getElementById('otpSuccess').style.display = 'none'
+                document.getElementById('otpError').textContent = data.error || 'Erreur OTP.';
+                document.getElementById('otpError').style.display = 'block';
+                document.getElementById('otpSuccess').style.display = 'none';
             }
         } catch (err) {
-            document.getElementById('otpError').textContent = 'Erreur réseau.'
-            document.getElementById('otpError').style.display = 'block'
-            document.getElementById('otpSuccess').style.display = 'none'
+            document.getElementById('otpError').textContent = 'Erreur réseau.';
+            document.getElementById('otpError').style.display = 'block';
+            document.getElementById('otpSuccess').style.display = 'none';
         }
     }
-
-    document.getElementById('otpForm').addEventListener('submit', (e) => {
-        e.preventDefault();
-        const name = document.getElementById('name').value;
-        const token = document.getElementById('otpToken').value;
-        verifyOtp(name, token);
-    });
 
     document.getElementById('loginForm').addEventListener('submit', (e) => {
         e.preventDefault();

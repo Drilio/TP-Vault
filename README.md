@@ -105,11 +105,22 @@ Les mdp etant stocké hashé par Bcrypt
 - va sur : http://localhost:5500/
 
 
-QR code pour otp
+# OTP :
+1. connecte toi avec 
+Nom d'utilisateur: alice
+Mot de passe: alicepass
 
-Empéché le Rejeu des requêtes
+2. Scan le QRCode avec une app type FreeOTP
+3. tape le code dans Code OTP input
+4. Valider OTP 
+
+# Stratégie pour empêcher le rejeu des requêtes : 
+regarde ./app/antiReplay.js
+
+Je l'utilise que sur Login dans index.js ligne 125
+
 
 ### TO STORE
-Unseal Key 1: Ixmj794N6DSvOW3J7E+mtojwvVos6Gs/c1pSikH76vc=
+Unseal Key 1:
 
-Initial Root Token: s.SQ5i4tHbhh3qEJVJDYgh2IsQ
+Initial Root Token: 

@@ -6,6 +6,8 @@ import cors from 'cors'
 import speakeasy from 'speakeasy'
 import { authenticator } from 'otplib'
 import qrcodeLib from 'qrcode'
+import crypto from 'crypto'
+import {antiReplayMiddleware} from "./antiReplay.js";
 
 
 const VAULT_ADDR = process.env.OPENBAO_URL
@@ -115,7 +117,12 @@ app.get('/', async (req, res) => {
     }
 })
 
-app.post('/login', express.json(), async (req, res) => {
+app.get('/nonce', (_req, res) => {
+    const nonce = crypto.randomUUID()
+    res.json({ nonce })
+})
+
+app.post('/login', antiReplayMiddleware, express.json(), async (req, res) => {
     const { name, password } = req.body
     if (!name || !password) {
         return res.status(400).json({ error: 'Nom et mot de passe requis.' })
